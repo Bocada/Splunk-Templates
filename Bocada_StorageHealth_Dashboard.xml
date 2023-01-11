@@ -1,0 +1,218 @@
+<form version="1.1">
+  <label>Bocada Storage Health</label>
+  <search id="storage_search">
+    <query>index=bocada_data sourcetype="bocada_mediainventory"  source="Bocada_MediaInventory" 
+           |fillnull value="" 
+           |join type=inner server_id [ SEARCH index=bocada_data sourcetype=Bocada_BackupServers source=Bocada_BackupServers]
+           |join type=inner product_id [ SEARCH index=bocada_data source="Bocada_BackupProducts"]
+           |eval postcompression_TB = bytecount/1024/1024/1024/1024 
+           |eval earliest = $toearliest$ | eval latest=if($tolatest$ &lt; 0, now(), $tolatest$) | eval datefield = strptime($filterByDateTime$, "%Y-%m-%d%H:%M:%S") | eval _time = datefield     
+           |eval inventoryDate=strftime(datefield, "%b %d, %Y")
+           |Where datefield &gt;= earliest AND datefield &lt;= latest 
+           |table inventoryDate, serverfqname, productname, reportdisplayname, server_id, product_id, postcompression_TB , bytecount_dedup, bytecount_precompression, bytecount_metadata, filecount, server_id, client_id, 
+                  mediagroup_id, mediapool_id, _time, inserteddate, pulleddate
+           |rename serverfqname as "ServerName"
+      </query>
+  </search>
+  <search id="datadomain_search">
+    <query> index=bocada_data sourcetype=Bocada_StorageServers source=Bocada_StorageServers
+              |eval earliest = $toearliest$ | eval latest=if($tolatest$ &lt; 0, now(), $tolatest$) | eval datefield = strptime($filterByDateTime$, "%Y-%m-%d%H:%M:%S") | eval _time = datefield     
+              |eval inventoryDate=strftime(datefield, "%b %d, %Y")
+              |Where datefield &gt;= earliest AND datefield &lt;= latest 
+              |eval volumeUsage_TB = VolumeUsage/1024/1024/1024/1024
+              |eval volumeFree_TB = VolumeFree/1024/1024/1024/1024
+              |eval volumeCapacity_TB = VolumeCapacity/1024/1024/1024/1024
+              |eval preCompression_TB = PreCompression/1024/1024/1024/1024
+              |eval cleaneable_TB = Cleaneable/1024/1024/1024/1024
+              |table inventoryDate, ProductName, ServerName, MediaPoolName, MediaLibrary, VolumeName, volumeUsage_TB, volumeFree_TB, volumeCapacity_TB, cleaneable_TB, preCompression_TB, VolumeFree, VolumeUsage, VolumeCapacity, _time, pulleddate
+              |fillnull value="0" 
+              |search ServerName=$filterByServer$            
+      </query>
+  </search>
+  <search>
+    <query>|makeresults</query>
+    <earliest>$timeToken.earliest$</earliest>
+    <latest>$timeToken.latest$</latest>
+    <progress>
+      <eval token="toearliest">strptime($job.earliestTime$, "%Y-%m-%dT%H:%M:%S.%3N%z")</eval>
+      <eval token="tolatest">strptime($job.latestTime$, "%Y-%m-%dT%H:%M:%S.%3N%z")</eval>
+      <set token="jobearliest">$job.earliestTime$</set>
+      <set token="joblatest">$job.latestTime$</set>
+    </progress>
+  </search>
+  <fieldset submitButton="false">
+    <input type="time" token="timeToken" searchWhenChanged="true">
+      <label>Time Picker</label>
+      <default>
+        <earliest>-7d@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="dropdown" token="filterByDateTime">
+      <label>Inventory Date</label>
+      <choice value="pulleddate">Inventory Date</choice>
+      <default>pulleddate</default>
+    </input>
+    <input type="multiselect" token="filterByProduct">
+      <label>Backup Product</label>
+      <valuePrefix>"</valuePrefix>
+      <valueSuffix>"</valueSuffix>
+      <delimiter> OR </delimiter>
+      <fieldForLabel>reportdisplayname</fieldForLabel>
+      <fieldForValue>productname</fieldForValue>
+      <search base="storage_search">
+        <query>| dedup productname, reportdisplayname | sort reportdisplayname</query>
+      </search>
+      <choice value="*">All</choice>
+      <default>*</default>
+    </input>
+    <input type="multiselect" token="filterByServer">
+      <label>Server Name</label>
+      <valuePrefix>"</valuePrefix>
+      <valueSuffix>"</valueSuffix>
+      <delimiter> OR </delimiter>
+      <fieldForLabel>ServerName</fieldForLabel>
+      <fieldForValue>ServerName</fieldForValue>
+      <search base="storage_search">
+        <query>| dedup ServerName | sort ServerName</query>
+      </search>
+      <choice value="*">All</choice>
+      <default>*</default>
+      <initialValue>*</initialValue>
+    </input>
+  </fieldset>
+  <row>
+    <panel>
+      <title>Storage Trend</title>
+      <chart>
+        <search base="storage_search">
+          <query> | stats sum(postcompression_TB) AS VolumeUsage by inventoryDate, ServerName | sort pulleddate
+                  | xyseries inventoryDate, ServerName, VolumeUsage
+          </query>
+        </search>
+        <option name="charting.axisLabelsX.majorLabelStyle.rotation">0</option>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.text">TB</option>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked100</option>
+        <option name="charting.drilldown">all</option>
+        <option name="height">249</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Data Domain Utilization</title>
+      <chart>
+        <search base="datadomain_search">
+          <query> | search ProductName="Data Domain"
+                  | stats sum(volumeUsage_TB) AS VolumeUsage, sum(volumeFree_TB) AS VolumeFree by inventoryDate, ServerName | sort pulleddate
+                  | xyseries inventoryDate, ServerName, VolumeUsage, VolumeFree
+          </query>
+        </search>
+        <option name="charting.axisLabelsX.majorLabelStyle.rotation">0</option>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.visibility">collapsed</option>
+        <option name="charting.axisTitleY2.visibility">collapsed</option>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.overlayFields">VolumeCapacity</option>
+        <option name="charting.chart.showDataLabels">none</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.fieldColors">{"VolumeUsage": c80100, "VolumeFree": 028200}</option>
+        <option name="charting.layout.splitSeries">0</option>
+        <option name="charting.legend.placement">right</option>
+        <option name="height">249</option>
+        <option name="trellis.enabled">1</option>
+        <option name="trellis.scales.shared">0</option>
+        <option name="trellis.splitBy">ServerName</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Data Domain Utilization Trends</title>
+      <chart>
+        <search base="datadomain_search">
+          <query> | search ProductName="Data Domain"
+                  | stats sum(volumeUsage_TB) AS Used, sum(volumeFree_TB) AS Free, sum(cleaneable_TB) as Cleaneable, sum(volumeCapacity_TB) as Capacity by inventoryDate | sort pulleddate
+          </query>
+        </search>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.text">TB</option>
+        <option name="charting.chart">line</option>
+        <option name="charting.fieldColors">{"Used": c80100, "Free": 028200, "Capacity":349beb, "Cleaneable": eba234}</option>
+        <option name="charting.drilldown">all</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Store Once Utilization</title>
+      <chart>
+        <search base="datadomain_search">
+          <query>  | search ProductName="*StoreOnce*"
+                  | stats sum(volumeUsage_TB) AS VolumeUsage, sum(volumeFree_TB) AS VolumeFree by inventoryDate | sort pulleddate
+          </query>
+        </search>
+        <option name="charting.axisLabelsX.majorLabelStyle.rotation">0</option>
+        <option name="charting.axisTitleX.visibility">visible</option>
+        <option name="charting.axisTitleY.visibility">visible</option>
+        <option name="charting.axisTitleY2.visibility">visible</option>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.overlayFields">VolumeCapacity</option>
+        <option name="charting.chart.showDataLabels">none</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.fieldColors">{"VolumeUsage": c80100, "VolumeFree": 028200}</option>
+        <option name="charting.layout.splitSeries">0</option>
+        <option name="charting.legend.placement">right</option>
+        <option name="height">249</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Store Once Utilization Trends</title>
+      <chart>
+        <search base="datadomain_search">
+          <query> | search ProductName="*StoreOnce*"
+                  | stats sum(volumeUsage_TB) AS Used, sum(volumeFree_TB) AS Free, sum(cleaneable_TB) as Cleaneable, sum(volumeCapacity_TB) as Capacity by inventoryDate | sort pulleddate
+          </query>
+        </search>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.text">TB</option>
+        <option name="charting.chart">line</option>
+        <option name="charting.fieldColors">{"Used": c80100, "Free": 028200, "Capacity":349beb, "Cleaneable": eba234}</option>
+        <option name="charting.drilldown">all</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Media Inventory</title>
+      <table>
+        <search base="storage_search">
+          <query>| sort pulleddate
+          </query>
+        </search>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel depends="$hidePanel$">
+      <table>
+        <title>Token Values</title>
+        <search>
+          <query>| makeresults 
+          | eval timeTokenearliest = "$timeToken.earliest$" 
+          | eval timeTokenlatest = "$timeToken.latest$" 
+          | eval jobearliest = "$jobearliest$"
+          | eval joblatest = "$joblatest$"
+          | eval toearliest = "$toearliest$"
+          | eval tolatest = "$tolatest$"
+          | table timeTokenearliest, timeTokenlatest,jobearliest,joblatest </query>
+          <earliest>$timeToken.earliest$</earliest>
+          <latest>$timeToken.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+  </row>
+</form>

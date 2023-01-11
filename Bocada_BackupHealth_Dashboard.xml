@@ -1,0 +1,231 @@
+<form version="1.1">
+  <label>Bocada Backups Health</label>
+  <search id="base_search">
+    <query>index=bocada_data sourcetype=Bocada_Backups source="bocada_backups" 
+           |eval bytecount_GB = Byte_Count/1024/1024/1024 | eval earliest = $toearliest$ | eval latest=if($tolatest$ &lt; 0, now(), $tolatest$) | eval datefield = strptime($filterByJobDateTime$, "%Y-%m-%d%H:%M:%S") | eval _time = datefield 
+           |eval _durationDays = Job_Duration_Seconds/60/60/24
+           |Where datefield &gt;= earliest AND datefield &lt;= latest 
+           |table Backup_Id, Status, Job_Datetime, Product_Name, BackupServer_Name, Client_Name, Targe_Name, Level, Backup_type, Policy, Schedule, JobGroup, Job_Duration_Seconds, _durationDays, bytecount_GB, Byte_Count, Bytes_Protected, Bytes_BackedUp, Bytes_PostDedup, Bytes_Compressed, Server_Id, Client_Id, Backup_Day, _time
+           |fillnull value=""
+           | search Product_Name=$filterByProduct$  BackupServer_Name=$filterByServer$ JobGroup=$filterByJobGroup$ Level=$filterByLevel$ Policy=$filterByPolicy$ 
+           | join type=inner Client_Id [SEARCH index=bocada_data source="Bocada_Clients_Per_Zone" | fillnull value="" | search zonetypename=$filterByZoneType$ | rename client_id AS Client_Id  ]            
+      </query>
+  </search>
+  <search>
+    <query>|makeresults</query>
+    <earliest>$timeToken.earliest$</earliest>
+    <latest>$timeToken.latest$</latest>
+    <progress>
+      <eval token="toearliest">strptime($job.earliestTime$, "%Y-%m-%dT%H:%M:%S.%3N%z")</eval>
+      <eval token="tolatest">strptime($job.latestTime$, "%Y-%m-%dT%H:%M:%S.%3N%z")</eval>
+      <set token="jobearliest">$job.earliestTime$</set>
+      <set token="joblatest">$job.latestTime$</set>
+    </progress>
+  </search>
+  <fieldset submitButton="false">
+    <input type="time" token="timeToken" searchWhenChanged="true">
+      <label>Time Picker</label>
+      <default>
+        <earliest>-7d@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="dropdown" token="filterByJobDateTime">
+      <label>Job Date</label>
+      <choice value="Job_Datetime">Job Date</choice>
+      <default>Job_Datetime</default>
+    </input>
+    <input type="multiselect" token="filterByProduct">
+      <label>Backup Product</label>
+      <valuePrefix>"</valuePrefix>
+      <valueSuffix>"</valueSuffix>
+      <delimiter> OR </delimiter>
+      <fieldForLabel>reportdisplayname</fieldForLabel>
+      <fieldForValue>productname</fieldForValue>
+      <search>
+        <query>index=bocada_data sourcetype="Bocada_BackupServers" | join type=inner product_id [ SEARCH index=bocada_data source="Bocada_BackupProducts"] | dedup reportdisplayname | table productname, reportdisplayname | sort reportdisplayname</query>
+      </search>
+      <choice value="*">All</choice>
+      <default>*</default>
+    </input>
+    <input type="multiselect" token="filterByServer">
+      <label>Server Name</label>
+      <valuePrefix>"</valuePrefix>
+      <valueSuffix>"</valueSuffix>
+      <delimiter> OR </delimiter>
+      <fieldForLabel>BackupServer_Name</fieldForLabel>
+      <fieldForValue>BackupServer_Name</fieldForValue>
+      <search base="base_search">
+        <query>| dedup BackupServer_Name | sort BackupServer_Name</query>
+      </search>
+      <choice value="*">All</choice>
+      <default>*</default>
+      <initialValue>*</initialValue>
+    </input>
+    <input type="multiselect" token="filterByJobGroup">
+      <label>Job Group</label>
+      <valuePrefix>"</valuePrefix>
+      <valueSuffix>"</valueSuffix>
+      <delimiter> OR </delimiter>
+      <fieldForLabel>JobGroup</fieldForLabel>
+      <fieldForValue>JobGroup</fieldForValue>
+      <search base="base_search">
+        <query>| dedup JobGroup | sort JobGroup</query>
+      </search>
+      <choice value="*">All</choice>
+      <default>*</default>
+      <initialValue>*</initialValue>
+    </input>
+    <input type="multiselect" token="filterByPolicy">
+      <label>Policy</label>
+      <valuePrefix>"</valuePrefix>
+      <valueSuffix>"</valueSuffix>
+      <delimiter> OR </delimiter>
+      <fieldForLabel>Policy</fieldForLabel>
+      <fieldForValue>Policy</fieldForValue>
+      <search base="base_search">
+        <query>| dedup Policy | sort Policy</query>
+      </search>
+      <choice value="*">All</choice>
+      <default>*</default>
+      <initialValue>*</initialValue>
+    </input>
+    <input type="multiselect" token="filterByLevel">
+      <label>Level</label>
+      <fieldForLabel>Level</fieldForLabel>
+      <fieldForValue>Level</fieldForValue>
+      <search base="base_search">
+        <query>| dedup Level | sort Level</query>
+      </search>
+      <choice value="*">All</choice>
+      <default>*</default>
+      <initialValue>*</initialValue>
+      <valuePrefix>"</valuePrefix>
+      <valueSuffix>"</valueSuffix>
+      <delimiter> OR </delimiter>
+    </input>
+
+    <input type="multiselect" token="filterByZoneType">
+      <label>Zone Type</label>
+      <fieldForLabel>zonetypename</fieldForLabel>
+      <fieldForValue>zonetypename</fieldForValue>
+      <search>
+        <query>index=bocada_data sourcetype=Bocada_Clients_Per_Zone source=Bocada_Clients_Per_Zone |dedup zonetypename | sort zonetypename | table zonetypename </query>
+      </search>
+      <choice value="*">All</choice>
+      <default>*</default>
+      <initialValue>*</initialValue>
+      <prefix>"</prefix>
+      <suffix>"</suffix>
+    </input>
+  </fieldset>
+  <row>
+    <panel>
+      <title>Backup Health</title>
+      <chart>
+        <search base="base_search">
+          <query> | stats count(Backup_Id) AS Jobs by Status | sort Status
+          </query>
+        </search>
+        <option name="charting.chart">pie</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.fieldColors">{"Failure": c80100, "Partial Success": efad00, "Success": 028200}</option>
+        <option name="height">249</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Restore Health</title>
+      <chart>
+        <search base="base_search">
+          <query>| stats count(eval(Level="Restore")) AS Jobs by Status| sort Status</query>
+        </search>
+        <option name="charting.chart">pie</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.fieldColors">{"Failure": c80100, "Partial Success": efad00, "Success": 028200}</option>
+        <option name="height">249</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Backup Health Trends</title>
+      <chart>
+        <search base="base_search">
+          <query>| stats count AS Jobs By  Backup_Day, Status | sort Backup_Day, Status | xyseries Backup_Day, Status, Jobs 
+          </query>
+        </search>
+        <option name="charting.axisTitleX.text">Backup Day</option>
+        <option name="charting.axisTitleY.text">Jobs</option>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.fieldColors">{"Failure": c80100, "Partial Success": efad00, "Success": 028200}</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Backup Trends</title>
+      <chart>
+        <search base="base_search">
+          <query>| stats sum(bytecount_GB) As ByteCount_GB By  BackupServer_Name, Backup_Day | sort Backup_Day 
+                 | xyseries Backup_Day, BackupServer_Name, ByteCount_GB
+          </query>
+        </search>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.text">Byte Counts GB</option>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">all</option>
+        <option name="height">249</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Backup Duration Trends</title>
+      <chart>
+        <search base="base_search">
+          <query>| stats sum(_durationDays) As Duration By  BackupServer_Name, Backup_Day | sort Backup_Day 
+                 | xyseries Backup_Day, BackupServer_Name, Duration
+          </query>
+        </search>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.text">Duration Days</option>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">all</option>
+        <option name="height">249</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Backup Jobs</title>
+      <table>
+        <search base="base_search">
+          <query>| sort Backup_Id
+          </query>
+        </search>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel depends="$hidePanel$">
+      <table>
+        <title>Token Values</title>
+        <search>
+          <query>| makeresults 
+          | eval timeTokenearliest = "$timeToken.earliest$" 
+          | eval timeTokenlatest = "$timeToken.latest$" 
+          | eval jobearliest = "$jobearliest$"
+          | eval joblatest = "$joblatest$"
+          | eval toearliest = "$toearliest$"
+          | eval tolatest = "$tolatest$"
+          | table timeTokenearliest, timeTokenlatest,jobearliest,joblatest </query>
+          <earliest>$timeToken.earliest$</earliest>
+          <latest>$timeToken.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+  </row>
+</form>

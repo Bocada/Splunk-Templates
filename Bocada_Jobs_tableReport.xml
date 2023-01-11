@@ -1,0 +1,60 @@
+<form version="1.1">
+  <label>Bocada Jobs</label>
+  <search>
+    <query>|makeresults</query>
+    <earliest>$timeToken.earliest$</earliest>
+    <latest>$timeToken.latest$</latest>
+    <progress>
+      <eval token="toearliest">strptime($job.earliestTime$, "%Y-%m-%dT%H:%M:%S.%3N%z")</eval>
+      <eval token="tolatest">strptime($job.latestTime$, "%Y-%m-%dT%H:%M:%S.%3N%z")</eval>
+      <set token="jobearliest">$job.earliestTime$</set>
+      <set token="joblatest">$job.latestTime$</set>
+    </progress>
+  </search>
+  <fieldset submitButton="false">
+    <input type="time" token="timeToken" searchWhenChanged="true">
+      <label>Time Picker</label>
+      <default>
+        <earliest>0</earliest>
+        <latest></latest>
+      </default>
+    </input>
+    <input type="dropdown" token="filterByJobDateTime">
+      <label>Job Date</label>
+      <choice value="Job_Datetime">Job Date</choice>
+      <default>Job_Datetime</default>
+    </input>
+  </fieldset>
+  <row>
+    <panel>
+      <table>
+        <title>Backup Health</title>
+        <search>
+          <query>index=bocada_data sourcetype=Bocada_Backups source="bocada_backups" |eval earliest = $toearliest$ | eval latest=if($tolatest$ &lt; 0, now(), $tolatest$) |eval datefield = strptime($filterByJobDateTime$, "%Y-%m-%d%H:%M:%S") | Where datefield &gt;= earliest AND datefield &lt;= latest | table Backup_Id, Status, Job_Datetime, _time, Product_Name, BackupServer_Name, Client_Name, Targe_Name, Level, Backup_type, Policy, Schedule, JobGroup, Job_Duration_Seconds, Byte_Count, Bytes_Protected, Bytes_BackedUp, Bytes_PostDedup, Bytes_Compressed</query>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <table>
+        <title>Token Values</title>
+        <search>
+          <query>| makeresults 
+          | eval timeTokenearliest = "$timeToken.earliest$" 
+          | eval timeTokenlatest = "$timeToken.latest$" 
+          | eval jobearliest = "$jobearliest$"
+          | eval joblatest = "$joblatest$"
+          | eval toearliest = "$toearliest$"
+          | eval tolatest = "$tolatest$"
+          | table timeTokenearliest, timeTokenlatest,jobearliest,joblatest </query>
+          <earliest>$timeToken.earliest$</earliest>
+          <latest>$timeToken.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+  </row>
+</form>
