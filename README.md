@@ -1,3 +1,5 @@
+Copyright © 2023 Bocada LLC All Rights Reserved.
+
 # Splunk-Template
 Bocada Splunk Report Templates
 
